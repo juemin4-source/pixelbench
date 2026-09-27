@@ -155,11 +155,17 @@ let state = { project: null, entity: null, anim: null, selFrame: null, selCand: 
 
 /** 实体作用域 API 基址（项目 → 实体） */
 function EB(entity) { return `/api/projects/${encodeURIComponent(state.project)}/entities/${encodeURIComponent(entity || state.entity)}`; }
-/** 静态资源基址 */
-function FB(rel) { return `${EB()}/files/${rel}`; }
+/** 静态资源基址（逐段编码，防止文件名里的 / ? 破坏路径） */
+function FB(rel) { return `${EB()}/files/${String(rel).split('/').map(encodeURIComponent).join('/')}`; }
+
+/** HTML 转义：所有插入 innerHTML 的外部字符串都必须过这里 */
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 async function api(path, opts) {
-  const r = await fetch(path, opts);
+  const r = await fetch(path, { signal: AbortSignal.timeout(8000), ...opts });
   const ct = r.headers.get('content-type') || '';
   if (!r.ok && !ct.includes('application/zip')) {
     let msg = 'HTTP ' + r.status;
@@ -174,7 +180,7 @@ async function refreshStatus() {
     const s = await api('/api/status');
     state.status = s;
     const b = $('#bComfy');
-    if (s.comfy) { b.textContent = 'ComfyUI 在线'; b.className = 'badge ok'; $('#bVRAM').textContent = '显存空闲 ' + s.vram_free_gb + 'GB'; }
+    if (s.comfy) { b.textContent = 'ComfyUI 在线'; b.className = 'badge ok'; $('#bVRAM').textContent = '显存空闲 ' + (s.vram_free_gb ?? '—') + 'GB'; }
     else { b.textContent = 'ComfyUI 离线'; b.className = 'badge err'; $('#bVRAM').textContent = ''; }
     $('#bMock').textContent = s.mock ? 'MOCK 模式' : '';
     $('#bMock').className = 'badge mock';
@@ -192,7 +198,7 @@ async function refreshProjects() {
   for (const p of list) {
     const d = document.createElement('div');
     d.className = 'ent' + (p.name === state.project ? ' cur' : '');
-    d.innerHTML = `<span>${p.name}</span><span style="color:var(--dim);font-size:10px">${p.entities} 实体</span>`;
+    d.innerHTML = `<span>${esc(p.name)}</span><span style="color:var(--dim);font-size:10px">${esc(p.entities)} 实体</span>`;
     d.onclick = () => selectProject(p.name);
     el.appendChild(d);
   }
@@ -200,8 +206,9 @@ async function refreshProjects() {
 }
 
 async function selectProject(n) {
-  state.project = n; state.entity = null; state.anim = null; state.selFrame = null; state.status_data = null;
-  if (n) localStorage.setItem('pb.project', n);
+  state.project = n; state.entity = null; state.anim = null;
+  state.selFrame = null; state.selCand = null; state.status_data = null;
+  if (n) localStorage.setItem('pb.project', n); else localStorage.removeItem('pb.project');
   await refreshProjects();
   await refreshEntities();
   if (!n) {
@@ -221,10 +228,12 @@ async function refreshEntities() {
   for (const n of list) {
     const d = document.createElement('div');
     d.className = 'ent' + (n === state.entity ? ' cur' : '');
-    d.innerHTML = `<span>${n}</span><span class="del" title="删除">✕</span>`;
+    d.innerHTML = `<span>${esc(n)}</span><span class="del" title="删除">✕</span>`;
     d.onclick = e => {
       if (e.target.classList.contains('del')) {
-        if (confirm('删除实体 ' + n + '（不可恢复）？')) { api(EB(n), {method:'DELETE'}).then(() => selectEntity(null)); }
+        if (confirm('删除实体 ' + n + '（不可恢复）？')) {
+          api(EB(n), {method:'DELETE'}).then(() => selectEntity(null)).catch(err => alert('删除失败: ' + err.message));
+        }
       } else selectEntity(n);
     };
     el.appendChild(d);
@@ -233,7 +242,7 @@ async function refreshEntities() {
 }
 
 async function selectEntity(n) {
-  state.entity = n; state.anim = null; state.selFrame = null;
+  state.entity = n; state.anim = null; state.selFrame = null; state.selCand = null;
   await refreshEntities();
   if (!n) { $('#entMeta').style.display='none'; $('#refSec').style.display='none'; $('#tabs').innerHTML='<span style="color:var(--dim);padding:5px 10px">未选实体</span>'; $('#frames').innerHTML='<div id="empty">从左侧创建或选择实体开始</div>'; $('#fparam').innerHTML='<span style="color:var(--dim)">点击一个帧槽位</span>'; return; }
   const st = await api(EB(n));
@@ -247,7 +256,7 @@ async function selectEntity(n) {
   for (const a of (st.spec.animations || [])) {
     const t = document.createElement('div');
     t.className = 'tab' + (a === state.anim ? ' cur' : ''); t.textContent = a;
-    t.onclick = () => { state.anim = a; state.selFrame = null; renderAll(); };
+    t.onclick = () => { state.anim = a; state.selFrame = null; state.selCand = null; renderAll(); };
     tabs.appendChild(t);
   }
   const ops = document.createElement('div'); ops.id = 'tabops';
@@ -271,7 +280,7 @@ function renderRefs(refs) {
   const el = $('#refList'); el.innerHTML = '';
   for (const r of refs) {
     const d = document.createElement('label'); d.className = 'refchip';
-    d.innerHTML = `<img src="${FB('refs/' + r.name)}?t=${Date.now()}"><div><b>${r.name}</b><div style="font-size:10px;color:var(--dim)">${r.kind === 'style' ? '风格参考' : r.kind === 'base' ? '基础精灵' : '参考'}</div></div>`;
+    d.innerHTML = `<img src="${FB('refs/' + r.name)}?t=${Date.now()}"><div><b>${esc(r.name)}</b><div style="font-size:10px;color:var(--dim)">${r.kind === 'style' ? '风格参考' : r.kind === 'base' ? '基础精灵' : '参考'}</div></div>`;
     el.appendChild(d);
   }
   if (!refs.length) el.innerHTML = '<span style="color:var(--dim)">未上传参考图</span>';
@@ -294,7 +303,7 @@ function renderFrames(st) {
       body += `<div class="adopted-prev"><span class="tag">已采纳</span><img src="${FB(state.anim + '_' + String(i).padStart(3,'0') + '.png')}?t=${Date.now()}"></div>`;
     }
     if (cand.length) {
-      body += cand.map((c, ci) => `<div class="cand" data-frame="${i}" data-cand="${c}"><span class="tag">${c}</span><img src="${FB('candidates/' + state.anim + '/' + i + '/' + c)}?t=${Date.now()}"></div>`).join('');
+      body += cand.map(c => `<div class="cand" data-frame="${i}" data-cand="${esc(c)}"><span class="tag">${esc(c)}</span><img src="${FB('candidates/' + state.anim + '/' + i + '/' + c)}?t=${Date.now()}"></div>`).join('');
     }
     const genTask = activeTask(state.anim, i);
     let badge = '<span class="st empty">空</span>';
@@ -312,10 +321,10 @@ function renderFrames(st) {
       const btn = e.target.closest('button');
       if (btn) {
         if (btn.dataset.act === 'reroll') { selectFrame(i, null, false); }
-        if (btn.dataset.act === 'discard') { api(`${EB()}/frames/${state.anim}/${i}/discard`, {method:'POST'}).then(renderAll); }
+        if (btn.dataset.act === 'discard') { api(`${EB()}/frames/${state.anim}/${i}/discard`, {method:'POST'}).then(renderAll).catch(err => alert('清空失败: ' + err.message)); }
         return;
       }
-      selectFrame(i, state.selCand === null ? null : state.selCand, false);
+      selectFrame(i, null, false);
     };
     el.appendChild(div);
   }
@@ -336,8 +345,10 @@ function selectFrame(i, candFile, doAdopt) {
   state.selFrame = i; state.selCand = candFile || null;
   document.querySelectorAll('.frame').forEach(f => f.classList.toggle('hl', f.dataset.frame === String(i)));
   const st = state.status_data;
-  const cand = st.frames[state.anim].candidates[String(i)] || [];
-  const refOpts = st.refs.map(r => `<label class="refchip" style="cursor:pointer"><input type="checkbox" value="${r.name}" class="refpick"><img src="${FB('refs/' + r.name)}"><div>${r.name}</div></label>`).join('');
+  const fd = st?.frames?.[state.anim];
+  if (!fd) return;
+  const cand = fd.candidates[String(i)] || [];
+  const refOpts = st.refs.map(r => `<label class="refchip" style="cursor:pointer"><input type="checkbox" value="${esc(r.name)}" class="refpick"><img src="${FB('refs/' + r.name)}"><div>${esc(r.name)}</div></label>`).join('');
   $('#fparam').innerHTML = `
     <h2 style="margin-top:0">帧 ${String(i).padStart(3,'0')} 参数</h2>
     <label>提示词</label>
@@ -352,26 +363,32 @@ function selectFrame(i, candFile, doAdopt) {
     <div class="seedrow" style="margin-top:6px"><input id="fseed" placeholder="留空=随机" value="${''}"></div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="primary" id="fgen">生成</button>
-      ${cand && cand.length ? `<button id="fadopt" style="border-color:var(--ok);color:var(--ok)">采纳 ${cand||''}</button>` : ''}
+      ${candFile && cand.includes(candFile) ? `<button id="fadopt" class="primary">采纳 ${esc(candFile)}</button>` : ''}
     </div>`;
   $('#fgen').onclick = () => {
     const refs = [...document.querySelectorAll('.refpick:checked')].map(x => x.value);
     api(`${EB()}/frames/${state.anim}/${i}/generate`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ prompt: $('#fprompt').value, refs, seed: $('#fseed').value, quality: $('#fquality').value, steps: Number($('#fsteps').value || 20) })
-    }).then(() => { renderTasks(); setTimeout(renderAll, 700); });
+    }).then(() => { renderTasks(); setTimeout(renderAll, 700); })
+      .catch(e => alert('生成失败: ' + e.message));
   };
   const fa = $('#fadopt');
-  if (fa) fa.onclick = () => api(`${EB()}/frames/${state.anim}/${i}/adopt`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ candidate: cand })
-  }).then(renderAll);
-  if (doAdopt && cand) fa && fa.onclick();
+  if (fa) fa.onclick = () => {
+    fa.disabled = true;
+    api(`${EB()}/frames/${state.anim}/${i}/adopt`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ candidate: candFile })
+    }).then(renderAll).catch(e => { alert('采纳失败: ' + e.message); fa.disabled = false; });
+  };
+  if (doAdopt && fa) fa.onclick();
 }
 
 async function addFrame() {
   // find next empty index
   const st = state.status_data;
-  const fd = st.frames[state.anim];
+  const fd = st?.frames?.[state.anim];
+  if (!fd) return;
   const used = new Set([...Object.keys(fd.candidates), ...Array.from({length: fd.adopted}, (_, i) => String(i))]);
   let i = 0; while (used.has(String(i))) i++;
   selectFrame(i, null, false);
@@ -414,27 +431,35 @@ $('#refFile').onchange = async e => {
   if (r.ok) renderAll(); else alert('上传失败');
   e.target.value = '';
 };
+function needEntity() {
+  if (!state.entity) { alert('先在左栏选择实体'); return false; }
+  return true;
+}
 $('#btnNorm').onclick = async () => {
+  if (!needEntity()) return;
   const r = await api(`${EB()}/normalize`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
   alert('归一化完成 ' + r.normalized.length + ' 帧');
   renderAll();
 };
 $('#btnPack').onclick = async () => {
+  if (!needEntity()) return;
   const r = await api(`${EB()}/pack`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
   alert('打包完成: ' + r.animations.join(', '));
   renderAll();
 };
 $('#btnVal').onclick = async () => {
+  if (!needEntity()) return;
   const r = await api(`${EB()}/validate`);
   const nBad = Object.values(r.animations).reduce((s, a) => s + a.problems.length, 0);
   $('#valResult').textContent = nBad ? `${nBad} 个问题` : (r.ok ? 'PASS' : 'FAIL');
-  const rows = Object.entries(r.animations).map(([a, d]) => d.problems.map(p => `<div class="vrow bad" data-anim="${a}">${a}: ${p}</div>`).join('') + (d.problems.length ? '' : `<div class="vrow ok" data-anim="${a}">${a}: ${d.frames} 帧 PASS</div>`)).join('');
+  const rows = Object.entries(r.animations).map(([a, d]) => d.problems.map(p => `<div class="vrow bad" data-anim="${esc(a)}">${esc(a)}: ${esc(p)}</div>`).join('') + (d.problems.length ? '' : `<div class="vrow ok" data-anim="${esc(a)}">${esc(a)}: ${esc(d.frames)} 帧 PASS</div>`)).join('');
   showModal(`<h3 style="margin:0 0 10px">校验报告 ${r.ok ? '<span class="st adopted">PASS</span>' : '<span class="st error">FAIL</span>'}</h3>${rows}`);
   document.querySelectorAll('.vrow').forEach(v => v.onclick = () => {
     if (v.dataset.anim) { state.anim = v.dataset.anim; selectEntity(state.entity); closeModal(); }
   });
 };
 $('#btnExport').onclick = () => {
+  if (!needEntity()) return;
   window.open(`${EB()}/export`, '_blank');
 };
 
@@ -452,10 +477,18 @@ async function loop() {
   await refreshStatus();
   try {
     await renderTasks();
-    // 用户正在输入参数时不重渲染帧网格（避免吞掉 textarea 焦点）
-    const typing = document.activeElement && (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT');
-    const hasActive = (state.taskList || []).some(t => t.project === state.project && t.entity === state.entity && (t.status === 'running' || t.status === 'queued'));
-    if (state.entity && (!typing || hasActive)) {
+    // 仅在「真的在输入框里打字」时暂停重渲染。
+    // 必须同时满足：焦点在右栏参数面板内 且 是输入类元素——
+    // 否则点一次「生成」按钮（按钮获得焦点）就会永久停住刷新。
+    const ae = document.activeElement;
+    const typing = !!ae && $('#fparam').contains(ae) &&
+      ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName);
+    // 任务刚结束的那几轮也要强制刷新（否则 hasActive 已翻 false、焦点又恰在输入框时会漏掉结果）
+    const recent = (state.taskList || []).some(t => t.project === state.project && t.entity === state.entity &&
+      t.finishedAt && (Date.now() / 1000 - t.finishedAt) < 4);
+    const hasActive = (state.taskList || []).some(t => t.project === state.project && t.entity === state.entity &&
+      ['running', 'queued', 'recovered'].includes(t.status));
+    if (state.entity && (!typing || hasActive || recent)) {
       state.status_data = await api(EB());   // 每轮重取：生成完成的候选才会出现
       renderFrames(state.status_data);
     }

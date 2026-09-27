@@ -108,11 +108,29 @@ TASKS_FILE = os.path.join(WS, 'tasks.json')
 
 def load_tasks():
     if os.path.exists(TASKS_FILE):
-        return json.load(open(TASKS_FILE, encoding='utf-8'))
+        try:
+            return json.load(open(TASKS_FILE, encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            return {}   # 损坏时放弃旧任务表，不让服务起不来
     return {}
 
+TASKS_LOCK = threading.Lock()
+
 def save_tasks(t):
-    json.dump(t, open(TASKS_FILE, 'w', encoding='utf-8'), indent=1)
+    """原子写：先写临时文件再替换，避免并发下半截 JSON。"""
+    with TASKS_LOCK:
+        tmp = TASKS_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(t, f, indent=1, ensure_ascii=False)
+        os.replace(tmp, TASKS_FILE)
+
+def safe_join(base, *parts):
+    """把不可信片段拼到 base 下，并确保结果不逃出 base（防路径穿越）。"""
+    target = os.path.normpath(os.path.join(base, *[str(x) for x in parts]))
+    base_n = os.path.normpath(base)
+    if target != base_n and not target.startswith(base_n + os.sep):
+        raise ValueError('path escapes workspace')
+    return target
 
 def proj_dir(project):
     safe = re.sub(r'[^A-Za-z0-9_\-\u4e00-\u9fff]', '_', project)
@@ -374,16 +392,26 @@ class H(BaseHTTPRequestHandler):
                 if sub == 'spec' and method == 'POST':
                     b = self.body()
                     spec = ent_spec(project, name)
-                    for k in ('animations', 'fps', 'notes'):
+                    if 'animations' in b:
+                        a = b['animations']
+                        if not isinstance(a, list) or not all(isinstance(x, str) for x in a):
+                            return self.send_json(400, {'error': 'animations must be a list of strings'})
+                        a = [x.strip() for x in a if x.strip()]
+                        if not all(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', x) for x in a):
+                            return self.send_json(400, {'error': 'animation names must be [A-Za-z_][A-Za-z0-9_]*'})
+                        spec['animations'] = a
+                    for k in ('fps', 'notes'):
                         if k in b:
                             spec[k] = b[k]
                     json.dump(spec, open(os.path.join(d, 'spec.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
                     return self.send_json(200, entity_state(project, name))
                 # static file under entity
                 if sub.startswith('files/'):
-                    rel = sub[6:]
-                    fp = os.path.normpath(os.path.join(d, rel))
-                    if fp.startswith(os.path.normpath(d)) and os.path.isfile(fp):
+                    try:
+                        fp = safe_join(d, sub[6:])
+                    except ValueError:
+                        return self.send_json(400, {'error': 'bad path'})
+                    if os.path.isfile(fp):
                         return self.send_file(fp, 'image/png')
                     return self.send_json(404, {'error': 'file not found'})
                 # refs
@@ -391,23 +419,34 @@ class H(BaseHTTPRequestHandler):
                     b = self.body()
                     if '__bytes__' not in b:
                         return self.send_json(400, {'error': 'binary body expected'})
-                    fn = b.get('__filename__', 'ref.png')
-                    dest = os.path.join(d, 'refs', fn)
-                    open(dest, 'wb').write(b['__bytes__'])
+                    fn = os.path.basename(b.get('__filename__') or 'ref.png')
+                    if not fn or fn.startswith('.'):
+                        return self.send_json(400, {'error': 'bad file name'})
+                    dest = safe_join(d, 'refs', fn)
+                    with open(dest, 'wb') as f:
+                        f.write(b['__bytes__'])
                     return self.send_json(200, entity_state(project, name))
                 # generate
                 mg = re.match(r'^frames/([A-Za-z0-9_]+)/(\d+)/generate$', sub)
                 if mg and method == 'POST':
                     anim, idx = mg.group(1), int(mg.group(2))
+                    if anim not in ent_spec(project, name).get('animations', []):
+                        return self.send_json(400, {'error': 'unknown animation: %s' % anim})
                     b = self.body()
-                    prompt = b.get('prompt', '')
-                    refs = b.get('refs', [])
-                    seed = b.get('seed') if b.get('seed') not in (None, '', 'random') else random.randint(1, 2 ** 31)
-                    if isinstance(seed, str):
+                    prompt = b.get('prompt', '') or ''
+                    if not isinstance(prompt, str):
+                        return self.send_json(400, {'error': 'prompt must be a string'})
+                    refs = b.get('refs', []) or []
+                    if not isinstance(refs, list) or not all(isinstance(x, str) for x in refs):
+                        return self.send_json(400, {'error': 'refs must be a list of names'})
+                    try:
+                        seed = b.get('seed') if b.get('seed') not in (None, '', 'random') else random.randint(1, 2 ** 31)
                         seed = int(seed)
+                        steps = int(b.get('steps', STEPS_DEFAULT))
+                    except (TypeError, ValueError):
+                        return self.send_json(400, {'error': 'seed/steps must be integers'})
                     quality = b.get('quality', 'fast')
                     w, h = resolve_size(quality, b.get('width'), b.get('height'))
-                    steps = int(b.get('steps', STEPS_DEFAULT))
                     transparent = bool(b.get('transparent'))
                     if MOCK:
                         tid = 'mock-%d' % int(time.time() * 1000)
@@ -433,7 +472,10 @@ class H(BaseHTTPRequestHandler):
                     # real ComfyUI path: upload refs
                     ref_files = []
                     for rn in refs:
-                        fp = os.path.join(d, 'refs', rn)
+                        try:
+                            fp = safe_join(d, 'refs', os.path.basename(rn))
+                        except ValueError:
+                            return self.send_json(400, {'error': 'bad ref: %s' % rn})
                         if not os.path.isfile(fp):
                             return self.send_json(400, {'error': 'ref missing: %s' % rn})
                         ref_files.append(upload_ref(open(fp, 'rb').read(),
@@ -453,7 +495,12 @@ class H(BaseHTTPRequestHandler):
                     anim, idx = ma.group(1), int(ma.group(2))
                     b = self.body()
                     cand = b.get('candidate', '')
-                    src = os.path.join(d, 'candidates', anim, str(idx), cand)
+                    if not isinstance(cand, str) or not cand:
+                        return self.send_json(400, {'error': 'candidate must be a file name'})
+                    try:
+                        src = safe_join(d, 'candidates', anim, str(idx), os.path.basename(cand))
+                    except ValueError:
+                        return self.send_json(400, {'error': 'bad candidate'})
                     if not os.path.isfile(src):
                         return self.send_json(400, {'error': 'candidate missing'})
                     dst = os.path.join(d, '%s_%03d.png' % (anim, idx))
@@ -479,11 +526,15 @@ class H(BaseHTTPRequestHandler):
                     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
                         for root, _, fs in os.walk(d):
                             for f in fs:
-                                full = os.path.join(root, f)
-                                rel = os.path.relpath(full, d)
                                 if not (f.endswith('.png') or f.endswith('.json')):
                                     continue
-                                z.write(full, os.path.join(name, rel))
+                                full = os.path.join(root, f)
+                                rel = os.path.relpath(full, d)
+                                # 归档路径必须仍在 <entity>/ 下
+                                arc = os.path.normpath(os.path.join(name, rel))
+                                if arc.startswith('..') or os.path.isabs(arc):
+                                    continue
+                                z.write(full, arc)
                     data = buf.getvalue()
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/zip')
