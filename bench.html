@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>PixelBench — AI 2D 角色资产工作台</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#161a21; --panel2:#1c212b; --line:#262d3a;
+  --txt:#d7dce6; --dim:#7d8698; --acc:#f0a929; --ok:#3fb37a; --err:#e05a5a;
+  --blue:#3fb3f0;
+}
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.5 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--txt);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:15px;margin:0;color:var(--acc)}
+.badge{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);color:var(--dim)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}
+.badge.err{color:var(--err);border-color:var(--err)}
+.badge.mock{color:var(--blue);border-color:var(--blue)}
+#banner{padding:4px 14px;background:#3a2a10;color:#ffd98a;font-size:12px;display:none}
+main{flex:1;display:flex;min-height:0}
+/* left */
+#left{width:250px;border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+#left .sec{padding:10px 12px;border-bottom:1px solid var(--line)}
+#left h2{font-size:11px;color:var(--dim);margin:0 0 6px;text-transform:uppercase;letter-spacing:.08em}
+.ent{padding:6px 8px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.ent:hover{background:var(--panel2)}
+.ent.cur{background:var(--panel2);outline:1px solid var(--line)}
+.ent .del{color:var(--dim);font-size:11px;padding:0 4px}
+.ent .del:hover{color:var(--err)}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px}
+button:hover{border-color:var(--acc)}
+button.primary{background:#2a2110;border-color:var(--acc);color:var(--acc)}
+button:disabled{opacity:.4;cursor:default}
+input,textarea,select{background:#10131a;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 8px;font-size:12px;width:100%}
+textarea{resize:vertical;min-height:52px;font-family:inherit}
+label{font-size:11px;color:var(--dim);display:block;margin:8px 0 3px}
+/* center */
+#center{flex:1;display:flex;flex-direction:column;min-width:0}
+#tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--line);background:var(--panel);align-items:center}
+.tab{padding:5px 14px;border-radius:8px 8px 0 0;cursor:pointer;color:var(--dim);border:1px solid transparent;border-bottom:none}
+.tab.cur{background:var(--panel2);color:var(--txt);border-color:var(--line)}
+#tabops{margin-left:auto;display:flex;gap:6px;padding-bottom:4px}
+#frames{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+.frame{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.frame.hl{outline:2px solid var(--acc)}
+.fhead{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.fhead .idx{font-weight:700}
+.st{font-size:11px;padding:1px 8px;border-radius:9px;border:1px solid var(--line);color:var(--dim)}
+.st.empty{color:var(--dim)}
+.st.generating{color:var(--blue);border-color:var(--blue)}
+.st.review{color:var(--acc);border-color:var(--acc)}
+.st.adopted{color:var(--ok);border-color:var(--ok)}
+.st.error{color:var(--err);border-color:var(--err)}
+.cands{display:flex;gap:8px;flex-wrap:wrap}
+.cand{position:relative;width:150px;cursor:pointer;border:2px solid transparent;border-radius:8px;overflow:hidden;background:#000}
+.cand img{width:100%;display:block;image-rendering:auto}
+.cand.sel{border-color:var(--acc)}
+.cand .tag{position:absolute;top:4px;left:4px;font-size:10px;background:rgba(0,0,0,.7);padding:0 5px;border-radius:4px}
+.adopted-prev{position:relative;width:150px;border:2px solid var(--ok);border-radius:8px;overflow:hidden;background:#000}
+.adopted-prev img{width:100%;display:block}
+.adopted-prev .tag{position:absolute;top:4px;left:4px;font-size:10px;background:rgba(0,0,0,.7);padding:0 5px;border-radius:4px;color:var(--ok)}
+.pbar{height:6px;background:#0c0e13;border-radius:3px;overflow:hidden;flex:1;max-width:220px}
+.pbar i{display:block;height:100%;background:var(--blue);width:0%}
+/* right */
+#right{width:330px;border-left:1px solid var(--line);background:var(--panel);overflow:auto;padding:12px}
+#right h2{font-size:11px;color:var(--dim);margin:0 0 6px;text-transform:uppercase;letter-spacing:.08em}
+.refchip{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:pointer}
+.refchip img{width:40px;height:40px;object-fit:cover;border-radius:4px;background:#000}
+.refchip input{width:auto}
+.seedrow{display:flex;gap:6px}
+.seedrow input{flex:1}
+/* footer */
+footer{border-top:1px solid var(--line);background:var(--panel);padding:6px 14px;display:flex;gap:14px;align-items:center;font-size:12px;color:var(--dim)}
+footer .grow{flex:1}
+/* modal */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:50}
+#modal .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;max-width:86vw;max-height:86vh;overflow:auto}
+#modal img{max-width:78vw;max-height:70vh;display:block;border-radius:6px}
+.mrow{display:flex;gap:12px;justify-content:center}
+.mcol{display:flex;flex-direction:column;gap:6px;align-items:center}
+.mcol .cap{font-size:11px;color:var(--dim)}
+.vrow{display:flex;gap:10px;align-items:center;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px}
+.vrow:hover{background:var(--panel2)}
+.vrow.bad{color:var(--err)}
+.vrow.ok{color:var(--ok)}
+#empty{margin:auto;color:var(--dim);text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>PixelBench</h1>
+  <span class="badge" id="bComfy">…</span>
+  <span class="badge" id="bMock"></span>
+  <span class="badge" id="bVRAM"></span>
+  <span style="flex:1"></span>
+  <span class="badge" id="bTask"></span>
+</header>
+<div id="banner"></div>
+<main>
+  <div id="left">
+    <div class="sec">
+      <h2>项目</h2>
+      <div id="projList"></div>
+      <label>新建项目</label>
+      <input id="newProj" placeholder="如 ever_eclipse" style="margin-bottom:6px">
+      <button class="primary" id="newProjBtn" style="width:100%">创建项目</button>
+    </div>
+    <div class="sec">
+      <h2>实体</h2>
+      <div id="entList"></div>
+      <label>新建实体</label>
+      <input id="newName" placeholder="如 knight" style="margin-bottom:6px">
+      <button class="primary" id="newBtn" style="width:100%">创建</button>
+    </div>
+    <div class="sec" id="entMeta" style="display:none">
+      <h2>规格</h2>
+      <label>动画列表（逗号分隔）</label>
+      <input id="specAnims">
+      <label>帧率</label>
+      <input id="specFps" type="number" min="2" max="60">
+      <label>备注</label>
+      <textarea id="specNotes"></textarea>
+      <button id="specSave" style="width:100%;margin-top:8px">保存规格</button>
+    </div>
+    <div class="sec" id="refSec" style="display:none">
+      <h2>参考图</h2>
+      <div id="refList"></div>
+      <label>上传参考图（文件名建议 style_bible.png / base_front.png）</label>
+      <input type="file" id="refFile" accept="image/png,image/jpeg,image/webp">
+    </div>
+  </div>
+  <div id="center">
+    <div id="tabs"><span style="color:var(--dim);padding:5px 10px">未选实体</span></div>
+    <div id="frames"><div id="empty">从左侧创建或选择实体开始</div></div>
+  </div>
+  <div id="right">
+    <h2>帧参数</h2>
+    <div id="fparam"><span style="color:var(--dim)">点击一个帧槽位</span></div>
+  </div>
+</main>
+<footer>
+  <button id="btnNorm">归一化 (S5)</button>
+  <button id="btnPack">打包 (S6)</button>
+  <button id="btnVal">校验 (S7)</button>
+  <span id="valResult"></span>
+  <span class="grow"></span>
+  <button id="btnExport">导出 zip</button>
+</footer>
+<div id="modal"><div class="box" id="modalBox"><div style="margin-bottom:10px"><button onclick="closeModal()">关闭</button></div><div id="modalBody"></div></div></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let state = { project: null, entity: null, anim: null, selFrame: null, selCand: null, status: null };
+
+/** 实体作用域 API 基址（项目 → 实体） */
+function EB(entity) { return `/api/projects/${encodeURIComponent(state.project)}/entities/${encodeURIComponent(entity || state.entity)}`; }
+/** 静态资源基址 */
+function FB(rel) { return `${EB()}/files/${rel}`; }
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const ct = r.headers.get('content-type') || '';
+  if (!r.ok && !ct.includes('application/zip')) {
+    let msg = 'HTTP ' + r.status;
+    if (ct.includes('json')) msg = (await r.json()).error || msg;
+    throw new Error(msg);
+  }
+  return ct.includes('json') ? r.json() : r;
+}
+
+async function refreshStatus() {
+  try {
+    const s = await api('/api/status');
+    state.status = s;
+    const b = $('#bComfy');
+    if (s.comfy) { b.textContent = 'ComfyUI 在线'; b.className = 'badge ok'; $('#bVRAM').textContent = '显存空闲 ' + s.vram_free_gb + 'GB'; }
+    else { b.textContent = 'ComfyUI 离线'; b.className = 'badge err'; $('#bVRAM').textContent = ''; }
+    $('#bMock').textContent = s.mock ? 'MOCK 模式' : '';
+    $('#bMock').className = 'badge mock';
+    $('#banner').style.display = s.comfy ? 'none' : 'block';
+    $('#banner').textContent = 'ComfyUI 离线 —— 生成不可用，其余功能正常。启动 ComfyUI 后自动恢复。';
+    // active task progress
+    if (s.active_tasks > 0) $('#bTask').textContent = '任务进行中 ×' + s.active_tasks;
+    else $('#bTask').textContent = '';
+  } catch (e) { $('#bComfy').textContent = '服务异常'; $('#bComfy').className = 'badge err'; }
+}
+
+async function refreshProjects() {
+  const list = await api('/api/projects');
+  const el = $('#projList'); el.innerHTML = '';
+  for (const p of list) {
+    const d = document.createElement('div');
+    d.className = 'ent' + (p.name === state.project ? ' cur' : '');
+    d.innerHTML = `<span>${p.name}</span><span style="color:var(--dim);font-size:10px">${p.entities} 实体</span>`;
+    d.onclick = () => selectProject(p.name);
+    el.appendChild(d);
+  }
+  if (!list.length) el.innerHTML = '<span style="color:var(--dim)">暂无项目——先建一个（如 ever_eclipse）</span>';
+}
+
+async function selectProject(n) {
+  state.project = n; state.entity = null; state.anim = null; state.selFrame = null; state.status_data = null;
+  if (n) localStorage.setItem('pb.project', n);
+  await refreshProjects();
+  await refreshEntities();
+  if (!n) {
+    $('#entMeta').style.display = 'none'; $('#refSec').style.display = 'none';
+    $('#tabs').innerHTML = '<span style="color:var(--dim);padding:5px 10px">未选实体</span>';
+    $('#frames').innerHTML = '<div id="empty">从左侧创建或选择实体开始</div>';
+    $('#fparam').innerHTML = '<span style="color:var(--dim)">点击一个帧槽位</span>';
+    return;
+  }
+  selectEntity(null);
+}
+
+async function refreshEntities() {
+  if (!state.project) { $('#entList').innerHTML = '<span style="color:var(--dim)">先选项目</span>'; return; }
+  const list = await api(`/api/projects/${encodeURIComponent(state.project)}/entities`);
+  const el = $('#entList'); el.innerHTML = '';
+  for (const n of list) {
+    const d = document.createElement('div');
+    d.className = 'ent' + (n === state.entity ? ' cur' : '');
+    d.innerHTML = `<span>${n}</span><span class="del" title="删除">✕</span>`;
+    d.onclick = e => {
+      if (e.target.classList.contains('del')) {
+        if (confirm('删除实体 ' + n + '（不可恢复）？')) { api(EB(n), {method:'DELETE'}).then(() => selectEntity(null)); }
+      } else selectEntity(n);
+    };
+    el.appendChild(d);
+  }
+  if (!list.length) el.innerHTML = '<span style="color:var(--dim)">暂无实体</span>';
+}
+
+async function selectEntity(n) {
+  state.entity = n; state.anim = null; state.selFrame = null;
+  await refreshEntities();
+  if (!n) { $('#entMeta').style.display='none'; $('#refSec').style.display='none'; $('#tabs').innerHTML='<span style="color:var(--dim);padding:5px 10px">未选实体</span>'; $('#frames').innerHTML='<div id="empty">从左侧创建或选择实体开始</div>'; $('#fparam').innerHTML='<span style="color:var(--dim)">点击一个帧槽位</span>'; return; }
+  const st = await api(EB(n));
+  state.status_data = st;
+  $('#entMeta').style.display = 'block'; $('#refSec').style.display = 'block';
+  $('#specAnims').value = (st.spec.animations || []).join(', ');
+  $('#specFps').value = st.spec.fps || 12;
+  $('#specNotes').value = st.spec.notes || '';
+  renderRefs(st.refs);
+  const tabs = $('#tabs'); tabs.innerHTML = '';
+  for (const a of (st.spec.animations || [])) {
+    const t = document.createElement('div');
+    t.className = 'tab' + (a === state.anim ? ' cur' : ''); t.textContent = a;
+    t.onclick = () => { state.anim = a; state.selFrame = null; renderAll(); };
+    tabs.appendChild(t);
+  }
+  const ops = document.createElement('div'); ops.id = 'tabops';
+  ops.innerHTML = '<button id="tabAddFrame">+ 加帧</button>';
+  tabs.appendChild(ops);
+  $('#tabAddFrame').onclick = addFrame;
+  if (!state.anim && st.spec.animations.length) { state.anim = st.spec.animations[0]; renderAll(); }
+  else renderAll();
+}
+
+async function renderAll() {
+  if (!state.entity) return;
+  const st = await api(EB());
+  state.status_data = st;
+  renderRefs(st.refs);
+  renderFrames(st);
+  renderTasks();
+}
+
+function renderRefs(refs) {
+  const el = $('#refList'); el.innerHTML = '';
+  for (const r of refs) {
+    const d = document.createElement('label'); d.className = 'refchip';
+    d.innerHTML = `<img src="${FB('refs/' + r.name)}?t=${Date.now()}"><div><b>${r.name}</b><div style="font-size:10px;color:var(--dim)">${r.kind === 'style' ? '风格参考' : r.kind === 'base' ? '基础精灵' : '参考'}</div></div>`;
+    el.appendChild(d);
+  }
+  if (!refs.length) el.innerHTML = '<span style="color:var(--dim)">未上传参考图</span>';
+}
+
+function renderFrames(st) {
+  const el = $('#frames'); el.innerHTML = '';
+  const fdata = st.frames[state.anim];
+  if (!fdata) { el.innerHTML = '<div id="empty">该动画还没有帧，点「+ 加帧」</div>'; return; }
+  // tabs refresh for anim list changes
+  const frameNos = new Set([...Object.keys(fdata.candidates), ...Array.from({length: fdata.adopted}, (_, i) => String(i))]);
+  const maxNo = Math.max(fdata.adopted, ...Object.keys(fdata.candidates).map(Number), -1);
+  for (let i = 0; i <= maxNo; i++) frameNos.add(String(i));
+  for (const i of [...frameNos].sort((a,b)=>a-b)) {
+    const cand = fdata.candidates[i] || [];
+    const adopted = i < fdata.adopted;
+    const div = document.createElement('div'); div.className = 'frame'; div.dataset.frame = i;
+    let body = '';
+    if (adopted) {
+      body += `<div class="adopted-prev"><span class="tag">已采纳</span><img src="${FB(state.anim + '_' + String(i).padStart(3,'0') + '.png')}?t=${Date.now()}"></div>`;
+    }
+    if (cand.length) {
+      body += cand.map((c, ci) => `<div class="cand" data-frame="${i}" data-cand="${c}"><span class="tag">${c}</span><img src="${FB('candidates/' + state.anim + '/' + i + '/' + c)}?t=${Date.now()}"></div>`).join('');
+    }
+    const genTask = activeTask(state.anim, i);
+    let badge = '<span class="st empty">空</span>';
+    if (genTask) badge = `<span class="st generating">生成中</span><div class="pbar"><i style="width:${genTask.progress||0}%"></i></div>`;
+    else if (adopted) badge = '<span class="st adopted">已采纳</span>';
+    else if (cand.length) badge = '<span class="st review">待审阅</span>';
+    div.innerHTML = `<div class="fhead"><span class="idx">帧 ${String(i).padStart(3,'0')}</span>${badge}<span style="flex:1"></span>${adopted?'<button data-act="reroll">重roll</button>':''} ${cand.length && !adopted ? '<button data-act="discard">清空候选</button>':''}</div><div class="cands">${body}</div>`;
+    div.onclick = e => {
+      const candEl = e.target.closest('.cand');
+      if (candEl) {
+        if (e.shiftKey) { selectFrame(i, candEl.dataset.cand); return; }
+        selectFrame(i, candEl.dataset.cand, true); // click = adopt
+        return;
+      }
+      const btn = e.target.closest('button');
+      if (btn) {
+        if (btn.dataset.act === 'reroll') { selectFrame(i, null, false); }
+        if (btn.dataset.act === 'discard') { api(`${EB()}/frames/${state.anim}/${i}/discard`, {method:'POST'}).then(renderAll); }
+        return;
+      }
+      selectFrame(i, state.selCand === null ? null : state.selCand, false);
+    };
+    el.appendChild(div);
+  }
+}
+
+function activeTask(anim, frame) {
+  for (const t of (state.taskList || [])) {
+    if (t.entity === state.entity && t.anim === anim && t.frame === frame && (t.status === 'running' || t.status === 'queued' || t.status === 'recovered')) return t;
+  }
+  return null;
+}
+
+async function renderTasks() {
+  state.taskList = await api('/api/tasks');
+}
+
+function selectFrame(i, candFile, doAdopt) {
+  state.selFrame = i; state.selCand = candFile || null;
+  document.querySelectorAll('.frame').forEach(f => f.classList.toggle('hl', f.dataset.frame === String(i)));
+  const st = state.status_data;
+  const cand = st.frames[state.anim].candidates[String(i)] || [];
+  const refOpts = st.refs.map(r => `<label class="refchip" style="cursor:pointer"><input type="checkbox" value="${r.name}" class="refpick"><img src="${FB('refs/' + r.name)}"><div>${r.name}</div></label>`).join('');
+  $('#fparam').innerHTML = `
+    <h2 style="margin-top:0">帧 ${String(i).padStart(3,'0')} 参数</h2>
+    <label>提示词</label>
+    <textarea id="fprompt">${cand.length ? '（沿用上次）' : ''}</textarea>
+    <label>参考图（勾选进生成；留空=纯文生图）</label>
+    <div id="refpicks">${refOpts || '<span style="color:var(--dim)">无参考图</span>'}</div>
+    <label>档位 / 步数 / seed</label>
+    <div style="display:flex;gap:6px">
+      <select id="fquality" style="width:90px"><option value="fast">fast</option><option value="standard">standard</option><option value="hq">hq</option></select>
+      <input id="fsteps" type="number" value="20" style="width:60px" title="steps">
+    </div>
+    <div class="seedrow" style="margin-top:6px"><input id="fseed" placeholder="留空=随机" value="${''}"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="primary" id="fgen">生成</button>
+      ${cand && cand.length ? `<button id="fadopt" style="border-color:var(--ok);color:var(--ok)">采纳 ${cand||''}</button>` : ''}
+    </div>`;
+  $('#fgen').onclick = () => {
+    const refs = [...document.querySelectorAll('.refpick:checked')].map(x => x.value);
+    api(`${EB()}/frames/${state.anim}/${i}/generate`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: $('#fprompt').value, refs, seed: $('#fseed').value, quality: $('#fquality').value, steps: Number($('#fsteps').value || 20) })
+    }).then(() => { renderTasks(); setTimeout(renderAll, 700); });
+  };
+  const fa = $('#fadopt');
+  if (fa) fa.onclick = () => api(`${EB()}/frames/${state.anim}/${i}/adopt`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ candidate: cand })
+  }).then(renderAll);
+  if (doAdopt && cand) fa && fa.onclick();
+}
+
+async function addFrame() {
+  // find next empty index
+  const st = state.status_data;
+  const fd = st.frames[state.anim];
+  const used = new Set([...Object.keys(fd.candidates), ...Array.from({length: fd.adopted}, (_, i) => String(i))]);
+  let i = 0; while (used.has(String(i))) i++;
+  selectFrame(i, null, false);
+}
+
+async function doSpecSave() {
+  await api(EB() + '/spec', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ animations: $('#specAnims').value.split(',').map(s=>s.trim()).filter(Boolean), fps: Number($('#specFps').value || 12), notes: $('#specNotes').value })
+  });
+  selectEntity(state.entity);
+}
+
+function showModal(html) { $('#modalBody').innerHTML = html; $('#modal').style.display = 'flex'; }
+function closeModal() { $('#modal').style.display = 'none'; }
+$('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+
+$('#newProjBtn').onclick = async () => {
+  const name = $('#newProj').value.trim();
+  if (!name) return;
+  try { await api('/api/projects', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name }) }); }
+  catch (e) { alert(e.message); return; }
+  $('#newProj').value = '';
+  selectProject(name);
+};
+$('#newBtn').onclick = async () => {
+  if (!state.project) { alert('先选择或创建项目'); return; }
+  const name = $('#newName').value.trim();
+  if (!name) return;
+  try { await api(`/api/projects/${encodeURIComponent(state.project)}/entities`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name }) }); }
+  catch (e) { alert(e.message); return; }
+  $('#newName').value = '';
+  selectEntity(name);
+};
+$('#specSave').onclick = doSpecSave;
+$('#refFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const b = new Blob([f]);
+  const r = await fetch(`${EB()}/refs/`, { method: 'POST', headers: {'X-Filename': f.name}, body: b });
+  if (r.ok) renderAll(); else alert('上传失败');
+  e.target.value = '';
+};
+$('#btnNorm').onclick = async () => {
+  const r = await api(`${EB()}/normalize`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+  alert('归一化完成 ' + r.normalized.length + ' 帧');
+  renderAll();
+};
+$('#btnPack').onclick = async () => {
+  const r = await api(`${EB()}/pack`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+  alert('打包完成: ' + r.animations.join(', '));
+  renderAll();
+};
+$('#btnVal').onclick = async () => {
+  const r = await api(`${EB()}/validate`);
+  const nBad = Object.values(r.animations).reduce((s, a) => s + a.problems.length, 0);
+  $('#valResult').textContent = nBad ? `${nBad} 个问题` : (r.ok ? 'PASS' : 'FAIL');
+  const rows = Object.entries(r.animations).map(([a, d]) => d.problems.map(p => `<div class="vrow bad" data-anim="${a}">${a}: ${p}</div>`).join('') + (d.problems.length ? '' : `<div class="vrow ok" data-anim="${a}">${a}: ${d.frames} 帧 PASS</div>`)).join('');
+  showModal(`<h3 style="margin:0 0 10px">校验报告 ${r.ok ? '<span class="st adopted">PASS</span>' : '<span class="st error">FAIL</span>'}</h3>${rows}`);
+  document.querySelectorAll('.vrow').forEach(v => v.onclick = () => {
+    if (v.dataset.anim) { state.anim = v.dataset.anim; selectEntity(state.entity); closeModal(); }
+  });
+};
+$('#btnExport').onclick = () => {
+  window.open(`${EB()}/export`, '_blank');
+};
+
+(async function boot() {
+  await refreshStatus();
+  await refreshProjects();
+  const list = await api('/api/projects');
+  const saved = localStorage.getItem('pb.project');
+  if (saved && list.some(p => p.name === saved)) await selectProject(saved);
+  else if (list.length) await selectProject(list[0].name);
+  loop();
+})();
+
+async function loop() {
+  await refreshStatus();
+  try {
+    await renderTasks();
+    // 用户正在输入参数时不重渲染帧网格（避免吞掉 textarea 焦点）
+    const typing = document.activeElement && (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT');
+    const hasActive = (state.taskList || []).some(t => t.project === state.project && t.entity === state.entity && (t.status === 'running' || t.status === 'queued'));
+    if (state.entity && (!typing || hasActive)) {
+      state.status_data = await api(EB());   // 每轮重取：生成完成的候选才会出现
+      renderFrames(state.status_data);
+    }
+  } catch (e) {}
+  setTimeout(loop, 1200);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "style": "hd-paint",
+  "reference": "死亡细胞式 HD 厚涂：2D 横版动作游戏角色，赛璐璐偏厚涂笔触，高饱和色块+硬边阴影，轮廓线偏深不闭合，氛围感优先于解剖细节",
+  "canvas": {
+    "frame_w": 1024,
+    "frame_h": 1024,
+    "ground_y": 896,
+    "margin": 24,
+    "sheet_row_h": 1024,
+    "sheet_max_w": 4096
+  },
+  "naming": {
+    "pattern": "<anim>_NNN.png",
+    "implicit_frame_order": true,
+    "sheet_pattern": "<entity>_<anim>.png"
+  },
+  "validation": {
+    "foot_anchor_tolerance_px": 6,
+    "min_opaque_ratio": 0.02,
+    "max_opaque_ratio": 0.85,
+    "silhouette_min_iou": 0.55
+  },
+  "entity_template": {
+    "entity": "",
+    "canonical_height": 512,
+    "animations": ["idle", "walk", "atkA"],
+    "fps": 12
+  }
+}
