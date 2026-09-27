@@ -187,8 +187,10 @@ def entity_state(project, name):
                 cd = os.path.join(cdir, idx_s)
                 if os.path.isdir(cd):
                     cands[idx_s] = sorted(x for x in os.listdir(cd) if x.endswith('.png'))
-        frames[a] = {'adopted': n_adopted, 'candidates': cands,
-                     'max_frame': n_adopted}
+        # adopted 同时给出数量与真实槽位：帧号可能不连续（采纳 0、2 而跳过 1），
+        # 前端必须按真实槽位判定，否则会把不存在的帧当成已采纳（404 破图）
+        frames[a] = {'adopted': n_adopted, 'adopted_slots': slots, 'candidates': cands,
+                     'max_frame': max(slots) if slots else 0}
     return {'name': name, 'spec': spec, 'refs': refs, 'frames': frames,
             'sheets': os.listdir(os.path.join(d, 'sheets')) if os.path.isdir(os.path.join(d, 'sheets')) else []}
 
@@ -455,17 +457,21 @@ class H(BaseHTTPRequestHandler):
                                       'seed': seed, 'submittedAt': time.time(), 'candidates': []}
                         save_tasks(TASKS)
                         def mock_run():
-                            time.sleep(1.5)
-                            cdir = os.path.join(d, 'candidates', anim, str(idx))
-                            os.makedirs(cdir, exist_ok=True)
-                            fn = 'c%02d.png' % len([x for x in os.listdir(cdir) if x.endswith('.png')])
-                            mock_frame(name, anim, idx, os.path.join(cdir, fn))
-                            files = sorted(x for x in os.listdir(cdir) if x.endswith('.png'))
-                            for old in files[:-3]:
-                                os.remove(os.path.join(cdir, old))
-                            TASKS[tid].update(status='completed', progress=100,
-                                              candidates=sorted(x for x in os.listdir(cdir) if x.endswith('.png')),
-                                              finishedAt=time.time())
+                            try:
+                                time.sleep(1.5)
+                                cdir = os.path.join(d, 'candidates', anim, str(idx))
+                                os.makedirs(cdir, exist_ok=True)
+                                fn = 'c%02d.png' % len([x for x in os.listdir(cdir) if x.endswith('.png')])
+                                mock_frame(name, anim, idx, os.path.join(cdir, fn))
+                                files = sorted(x for x in os.listdir(cdir) if x.endswith('.png'))
+                                for old in files[:-3]:
+                                    os.remove(os.path.join(cdir, old))
+                                TASKS[tid].update(status='completed', progress=100,
+                                                  candidates=sorted(x for x in os.listdir(cdir) if x.endswith('.png')),
+                                                  finishedAt=time.time())
+                            except Exception as e:
+                                # 必须落盘为 failed：否则任务永久停在 running，前端一直显示"生成中"
+                                TASKS[tid].update(status='failed', error=str(e)[:200], finishedAt=time.time())
                             save_tasks(TASKS)
                         threading.Thread(target=mock_run, daemon=True).start()
                         return self.send_json(200, {'task_id': tid})
@@ -559,7 +565,7 @@ class H(BaseHTTPRequestHandler):
             out_dir = os.path.join(d, 'normalized')
             os.makedirs(out_dir, exist_ok=True)
             for f in sorted(os.listdir(src_dir)):
-                m = re.match(r'^([A-Za-z0-9_]+)_(\d{3})\.png$', f)
+                m = re.match(r'^([A-Za-z0-9_]+)_(\d{2,4})\.png$', f)
                 if m:
                     r = T.normalize(os.path.join(src_dir, f), os.path.join(out_dir, f))
                     results.append(r['out'])

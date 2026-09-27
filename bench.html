@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>PixelBench — AI 2D 角色资产工作台</title>
+<link rel="icon" href="data:,">
 <style>
 :root{
   --bg:#0f1115; --panel:#161a21; --panel2:#1c212b; --line:#262d3a;
@@ -291,12 +292,17 @@ function renderFrames(st) {
   const fdata = st.frames[state.anim];
   if (!fdata) { el.innerHTML = '<div id="empty">该动画还没有帧，点「+ 加帧」</div>'; return; }
   // tabs refresh for anim list changes
-  const frameNos = new Set([...Object.keys(fdata.candidates), ...Array.from({length: fdata.adopted}, (_, i) => String(i))]);
-  const maxNo = Math.max(fdata.adopted, ...Object.keys(fdata.candidates).map(Number), -1);
+  // adopted_slots 是真实采纳帧号；老数据没有该字段时退回 0..adopted-1
+  const slots = fdata.adopted_slots || Array.from({length: fdata.adopted}, (_, i) => i);
+  const slotSet = new Set(slots.map(String));
+  const frameNos = new Set([...Object.keys(fdata.candidates), ...slotSet]);
+  let maxNo = Math.max(0, ...slots, ...Object.keys(fdata.candidates).map(Number));
+  // 末尾多留一个空槽作为「追加下一帧」的入口（否则采纳完最后一帧就没有可点的槽位了）
+  if (slots.length) maxNo = Math.max(maxNo, Math.max(...slots) + 1);
   for (let i = 0; i <= maxNo; i++) frameNos.add(String(i));
   for (const i of [...frameNos].sort((a,b)=>a-b)) {
     const cand = fdata.candidates[i] || [];
-    const adopted = i < fdata.adopted;
+    const adopted = slotSet.has(String(i));
     const div = document.createElement('div'); div.className = 'frame'; div.dataset.frame = i;
     let body = '';
     if (adopted) {
@@ -389,7 +395,8 @@ async function addFrame() {
   const st = state.status_data;
   const fd = st?.frames?.[state.anim];
   if (!fd) return;
-  const used = new Set([...Object.keys(fd.candidates), ...Array.from({length: fd.adopted}, (_, i) => String(i))]);
+  const used = new Set([...Object.keys(fd.candidates),
+    ...(fd.adopted_slots || Array.from({length: fd.adopted}, (_, i) => i)).map(String)]);
   let i = 0; while (used.has(String(i))) i++;
   selectFrame(i, null, false);
 }

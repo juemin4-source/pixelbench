@@ -1,0 +1,21 @@
+fix(review-2): 复核阶段新发现 4 处缺陷 + 常驻 UI 冒烟测试
+
+复核（第一轮修复后重读全部代码）新发现：
+- [Major] 采纳帧号不连续时前端误标：entity_state 的 adopted 是「个数」，
+  前端用 i<adopted 判定，采纳 0、2 跳过 1 时会把不存在的 idle_001.png 当已采纳导致 404 破图。
+  改为返回 adopted_slots 真实槽位列表，前端按集合判定；max_frame 同步修正
+- [Major] S5 产物被 S6 绕过：pack() 读实体根目录，normalize() 输出到 normalized/，
+  两者不通导致归一化白做。pack() 改为优先消费 normalized/
+- [Major] normalize() 不水平居中（左对齐贴边）：贴左缘时脚底锚点落在中央列带外，
+  validate() 会对完全正常的帧误报 no central foot anchor，且多帧播放横向漂移。
+  改为水平居中；返回真实 foot_y 而非粘贴偏移
+- [Minor] foot_y() 中央带无内容时直接返回 None：加整幅图回退（fallback=False 保留严格语义）
+- [Minor] mock 任务线程无异常保护：失败会让任务永久停在 running，前端一直显示生成中。
+  统一落盘为 failed 加 error 字段
+- [Minor] 归档帧号正则位数不一致：normalize 路由改成两位到四位，与 frames_of 对齐
+- [Nit] favicon 404、末尾缺追加下一帧空槽（采纳最后一帧后无槽可点）
+
+测试：
+- 新增 test_review_fixes2.py：14 项（不连续采纳/pack 走 normalized/居中/底边对齐/foot_y 回退）
+- 新增 ui_smoke.mjs：常驻 UI 冒烟，覆盖曾漏测的「点候选=采纳」主流程，8 项
+- 全套 4 个测试（41 项）全 PASS

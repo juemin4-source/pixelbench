@@ -22,15 +22,22 @@ def alpha_bboxes(img):
         return None
     return xs.min(), ys.min(), xs.max(), ys.max()
 
-def foot_y(img):
-    """Bottom-center anchor: lowest opaque pixel within central 40% column band."""
+def foot_y(img, fallback=True):
+    """Bottom-center anchor: lowest opaque pixel within central 40% column band.
+
+    中央带没内容时（例如角色贴着画布左缘）回退到整幅图的最低不透明像素，
+    否则会对完全正常的帧误报 "no central foot anchor"。
+    """
     a = np.asarray(img.convert('RGBA'))[:, :, 3]
     w = a.shape[1]
     lo, hi = int(w * 0.3), int(w * 0.7)
-    band = a[:, lo:hi]
-    ys, xs = np.where(band > 16)
+    ys, _ = np.where(a[:, lo:hi] > 16)
     if len(ys) == 0:
-        return None
+        if not fallback:
+            return None
+        ys, _ = np.where(a > 16)
+        if len(ys) == 0:
+            return None
     return int(ys.max())
 
 def normalize(path, out=None):
@@ -43,14 +50,17 @@ def normalize(path, out=None):
     crop = img.crop((x0, y0, x1 + 1, y1 + 1))
     fw, fh = C['frame_w'], C['frame_h']
     out_img = Image.new('RGBA', (fw, fh), (0, 0, 0, 0))
-    # feet at ground_y, bottom-aligned
+    # 底边对齐 ground_y
     paste_y = C['ground_y'] - (y1 - y0)
     if paste_y < 0: paste_y = 0
-    out_img.paste(crop, (0, paste_y), crop)
+    # 水平居中（左对齐会让脚底锚点落在中央列带之外，且多帧播放时角色会横向漂移）
+    paste_x = max(0, (fw - (x1 - x0 + 1)) // 2)
+    out_img.paste(crop, (paste_x, paste_y), crop)
     out = out or os.path.splitext(path)[0] + '_n.png'
     out_img.save(out)
     return {'src': os.path.basename(path), 'out': out,
-            'content_wh': (x1 - x0 + 1, y1 - y0 + 1), 'foot_y': paste_y}
+            'content_wh': (x1 - x0 + 1, y1 - y0 + 1),
+            'paste': (paste_x, paste_y), 'foot_y': paste_y + (y1 - y0)}
 
 def silhouette(img):
     a = np.asarray(img.convert('RGBA'))[:, :, 3]
@@ -73,12 +83,17 @@ def frames_of(entity_dir):
     return out
 
 def pack(entity_dir, outdir=None):
-    """One sheet per animation: frames left-to-right, one row (wrap if over max_w)."""
+    """One sheet per animation: frames left-to-right, one row (wrap if over max_w).
+
+    优先打包 normalized/ 下的 S5 产物；没有才退回实体根目录的原始采纳帧。
+    """
     outdir = outdir or os.path.join(entity_dir, 'sheets')
     os.makedirs(outdir, exist_ok=True)
-    frames = frames_of(entity_dir)
+    norm = os.path.join(entity_dir, 'normalized')
+    src_dir = norm if (os.path.isdir(norm) and frames_of(norm)) else entity_dir
+    frames = frames_of(src_dir)
     idx = {'entity': os.path.basename(os.path.normpath(entity_dir)),
-           'canvas': C, 'animations': {}}
+           'source_dir': os.path.basename(src_dir), 'canvas': C, 'animations': {}}
     for anim, paths in sorted(frames.items()):
         n = len(paths)
         cols = min(n, max(1, C['sheet_max_w'] // C['frame_w']))
