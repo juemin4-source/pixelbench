@@ -259,9 +259,10 @@ workspaces/<project>/        一个项目 = 一个游戏（永蚀 / 未来的其
 
 | 项 | 约定 |
 |---|---|
-| 远端 | `origin` = `https://github.com/juemin4-source/---.git`（黑日计划主仓） |
-| 分支模型 | `main` 只收 PR；功能分支 `feat/<scope>`（如 `feat/pixelbench-m1`），修复 `fix/<scope>` |
+| 远端 | `origin` = `https://github.com/juemin4-source/pixelbench.git`（本工作台独立仓） |
+| 分支模型 | `main` 只收 PR；功能分支 `feat/<scope>`，修复 `fix/<scope>` |
 | 提交规范 | `type(scope): 中文描述`（feat/fix/refactor/docs/chore） |
-| PR 流程 | 分支 push 后开 PR → 自审清单（构建/验证截图/边界情况）→ 合并到 main（squash） |
+| PR 流程 | 分支 push 后开 PR → 自审清单（测试/验证证据/边界情况）→ 合并到 main（squash） |
 | PR 描述模板 | 动机 / 改动点 / 验证方式 / 截图（UI 变更必须） |
-| 本工作台范围 | `art_tools/` 目录内代码 + 文档；`workspaces/` 大产物不入库（.gitignore） |
+| 本工作台范围 | 本仓库全部代码 + 文档；`workspaces/` 大产物不入库（.gitignore） |
+| 与游戏仓的关系 | 游戏《永蚀》原型在独立仓 [juemin4-source/ever-eclipse](https://github.com/juemin4-source/ever-eclipse)；本工作台服务多个项目，不隶属任何单个游戏 |
