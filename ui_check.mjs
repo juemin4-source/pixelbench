@@ -1,5 +1,22 @@
-import { chromium } from 'playwright-core';
+/**
+ * UI 冒烟验证：用真实浏览器跑一遍「建项目 → 建实体 → 生成 → 候选出现」。
+ *
+ * 依赖（可选，仅本脚本需要；工作台本体零依赖）：
+ *   npm i -D playwright-core
+ *
+ * 用法：先起服务（可用 mock），再 `node ui_check.mjs`
+ */
 import { existsSync } from 'fs';
+
+let chromium;
+try {
+  ({ chromium } = await import('playwright-core'));
+} catch {
+  console.error('缺少 playwright-core。装一下再跑：  npm i -D playwright-core');
+  process.exit(2);
+}
+
+const BASE = process.env.PIXELBENCH_URL || 'http://127.0.0.1:8321/';
 
 // find an installed Edge/Chrome channel
 const cands = [
@@ -17,7 +34,7 @@ p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 p.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
 p.on('response', r => { if (r.status() >= 400) errs.push(`HTTP ${r.status()} ${r.url()}`); });
 
-await p.goto('http://127.0.0.1:8321/', { waitUntil: 'networkidle' });
+await p.goto(BASE, { waitUntil: 'networkidle' });
 await p.waitForTimeout(1800);
 
 // create a project via UI
