@@ -9,3 +9,8 @@ _patch*.py
 _create_repo.py
 getcred.py
 open_pr.py
+
+test_entity/
+test_entity_norm/
+*.png
+
