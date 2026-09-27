@@ -92,8 +92,8 @@ python asset_tool.py validate <entity_dir>    # S7 校验报告
 
 ```powershell
 $env:PIXELBENCH_MOCK="1"; python bench_server.py   # 另一个终端
-python e2e_test.py                                 # 全流程 API E2E
-node ui_check.mjs                                  # 浏览器 UI 验证（需 Edge/Chrome）
+python e2e_test.py                                 # 全流程 API E2E（零依赖）
+node ui_check.mjs                                  # 浏览器 UI 验证（需 npm i -D playwright-core）
 ```
 
 ## 文档
